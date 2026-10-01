@@ -1,0 +1,92 @@
+name: SeoHub project readiness
+description: Validate project configuration and enabled-source credentials without executing paid provider actions.
+
+inputs:
+  live_auth:
+    description: Run safe/free credential checks for supported read-only sources.
+    required: false
+    default: "true"
+  yandex_metrika_token:
+    required: false
+    default: ""
+  yandex_webmaster_token:
+    required: false
+    default: ""
+  google_search_console_credentials_json:
+    required: false
+    default: ""
+  google_search_console_refresh_token:
+    required: false
+    default: ""
+  topvisor_user_id:
+    required: false
+    default: ""
+  topvisor_api_key:
+    required: false
+    default: ""
+
+outputs:
+  report_file:
+    description: Machine-readable readiness report on the runner.
+    value: ${{ steps.readiness.outputs.report_file }}
+  source_connectivity_status:
+    description: Local source connectivity status from the readiness report.
+    value: ${{ steps.readiness.outputs.source_connectivity_status }}
+  project_readiness_status:
+    description: Project bootstrap/readiness status from the readiness report.
+    value: ${{ steps.readiness.outputs.project_readiness_status }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install readiness dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --disable-pip-version-check --quiet \
+          -r "${{ github.action_path }}/../../scripts/project_lifecycle/requirements.txt"
+        if [[ "${{ inputs.live_auth }}" == "true" ]]; then
+          python3 -m pip install --disable-pip-version-check --quiet \
+            -r "${{ github.action_path }}/../../scripts/gsc/requirements.txt"
+        fi
+
+    - id: readiness
+      name: Validate project readiness
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}/../..
+        YANDEX_METRIKA_TOKEN: ${{ inputs.yandex_metrika_token }}
+        YANDEX_WEBMASTER_TOKEN: ${{ inputs.yandex_webmaster_token }}
+        GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON: ${{ inputs.google_search_console_credentials_json }}
+        GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN: ${{ inputs.google_search_console_refresh_token }}
+        TOPVISOR_USER_ID: ${{ inputs.topvisor_user_id }}
+        TOPVISOR_API_KEY: ${{ inputs.topvisor_api_key }}
+        LIVE_AUTH: ${{ inputs.live_auth }}
+      run: |
+        set -euo pipefail
+        report_file="$RUNNER_TEMP/seohub-readiness.json"
+        args=(
+          --source-root "${{ github.action_path }}/../.."
+          readiness
+          --target "$GITHUB_WORKSPACE"
+        )
+        if [[ "$LIVE_AUTH" == "true" ]]; then
+          args+=(--live-auth)
+        fi
+        set +e
+        python3 "${{ github.action_path }}/../../scripts/project_lifecycle/cli.py" "${args[@]}" > "$report_file"
+        rc=$?
+        set -e
+
+        if [[ "$rc" -ne 0 && "$rc" -ne 3 ]]; then
+          cat "$report_file" || true
+          exit "$rc"
+        fi
+
+        jq -e . "$report_file" >/dev/null
+        source_status="$(jq -er '.source_connectivity.status' "$report_file")"
+        project_status="$(jq -er '.project_readiness.status' "$report_file")"
+        echo "report_file=$report_file" >> "$GITHUB_OUTPUT"
+        echo "source_connectivity_status=$source_status" >> "$GITHUB_OUTPUT"
+        echo "project_readiness_status=$project_status" >> "$GITHUB_OUTPUT"
+        cat "$report_file"

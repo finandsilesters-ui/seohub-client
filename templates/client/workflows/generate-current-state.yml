@@ -1,0 +1,56 @@
+name: Generate current state
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.repository_id }}-seohub-writer
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Read project identity
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet PyYAML==6.0.2
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import yaml
+          from pathlib import Path
+          c = yaml.safe_load(Path("project.yaml").read_text(encoding="utf-8"))
+          for key in ("id", "domain"):
+              if not c.get(key):
+                  raise SystemExit(f"project.yaml: {key} is required")
+          print(f"project_id={c['id']}")
+          print(f"domain={c['domain']}")
+          PY
+      - id: current
+        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/generate-current-state@__SEOHUB_CLIENT_VERSION__
+        with:
+          project_id: ${{ steps.config.outputs.project_id }}
+          project_domain: ${{ steps.config.outputs.domain }}
+          traffic_days: "7"
+          output: data/aggregates/current-state.json
+      - name: Commit compact current-state entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add data/aggregates/current-state.json
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data: generate compact current-state index"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

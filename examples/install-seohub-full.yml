@@ -1,0 +1,81 @@
+name: Install SeoHub
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Lifecycle operation
+        required: true
+        type: choice
+        default: bootstrap
+        options:
+          - bootstrap
+          - plan-update
+          - update
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - id: seohub
+        name: Install or update SeoHub public client
+        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@__PUBLIC_CLIENT_SHA__
+        with:
+          operation: ${{ inputs.operation }}
+          client_version: __PUBLIC_CLIENT_SHA__
+          project_id: seo-test
+          project_name: SeoHub Test
+          repository: alexfchkjob-stack/seo-test
+          domain: example.com
+          timezone: Etc/UTC
+          enable_yandex_metrika: "true"
+          yandex_metrika_counter_id: "0"
+          yandex_metrika_attribution: last
+          enable_yandex_webmaster: "true"
+          yandex_webmaster_host_id: "https:example.com:443"
+          enable_google_search_console: "true"
+          google_search_console_site_url: "https://example.com/"
+          enable_topvisor: "true"
+          topvisor_project_id: "0"
+          enable_xmlstock: "true"
+
+      - name: Commit lifecycle-managed changes
+        if: ${{ inputs.operation != 'plan-update' }}
+        shell: bash
+        env:
+          RESULT_FILE: ${{ steps.seohub.outputs.result_file }}
+        run: |
+          set -euo pipefail
+          paths=(".seohub/client.json")
+          if [[ -f project.yaml ]] && ! git ls-files --error-unmatch project.yaml >/dev/null 2>&1; then
+            paths+=("project.yaml")
+          fi
+          while IFS= read -r path; do
+            [[ -n "$path" ]] && paths+=("$path")
+          done < <(jq -r '.managed_files? // [] | .[]' "$RESULT_FILE")
+          while IFS= read -r path; do
+            [[ -n "$path" ]] && paths+=("$path")
+          done < <(jq -r '.changes? // [] | .[].path' "$RESULT_FILE")
+
+          for path in "${paths[@]}"; do
+            git add -A -- "$path"
+          done
+
+          if git diff --cached --quiet; then
+            echo "No lifecycle-managed changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update SeoHub client"
+          git push origin "HEAD:$GITHUB_REF_NAME"

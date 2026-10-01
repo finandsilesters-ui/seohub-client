@@ -1,0 +1,72 @@
+name: SeoHub readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - id: project
+        name: Validate project config and enabled source credentials
+        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/project-readiness@__SEOHUB_CLIENT_VERSION__
+        with:
+          live_auth: "true"
+          yandex_metrika_token: ${{ secrets.YANDEX_METRIKA_TOKEN }}
+          yandex_webmaster_token: ${{ secrets.YANDEX_WEBMASTER_TOKEN }}
+          google_search_console_credentials_json: ${{ secrets.GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON }}
+          google_search_console_refresh_token: ${{ secrets.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN }}
+          topvisor_user_id: ${{ secrets.TOPVISOR_USER_ID }}
+          topvisor_api_key: ${{ secrets.TOPVISOR_API_KEY }}
+
+      - name: Validate hosted base URL configuration
+        env:
+          SEOHUB_HOSTED_BASE_URL: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$SEOHUB_HOSTED_BASE_URL" in
+            https://*) ;;
+            *) echo "SEOHUB_HOSTED_BASE_URL repository variable is missing or not HTTPS" >&2; exit 2 ;;
+          esac
+
+      - id: whoami
+        name: Validate hosted GitHub OIDC identity
+        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/hosted-control-plane-request@__SEOHUB_CLIENT_VERSION__
+        with:
+          base_url: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
+          path: /v1/whoami
+          method: GET
+
+      - name: Report hosted identity
+        env:
+          RESPONSE_FILE: ${{ steps.whoami.outputs.response_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq '{project_id, repository_id, repository, status, plan}' "$RESPONSE_FILE"
+
+      - name: Require project bootstrap readiness
+        env:
+          REPORT_FILE: ${{ steps.project.outputs.report_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .client_installation.status == "installed"
+            and .source_connectivity.status == "ready"
+            and .project_bootstrap.status == "ready"
+            and .project_readiness.status == "ready"
+          ' "$REPORT_FILE" >/dev/null
+          echo "SeoHub client installed; source connectivity and mandatory bootstrap decisions are ready."
+          echo "Analytical data readiness remains a separate post-bootstrap validation."

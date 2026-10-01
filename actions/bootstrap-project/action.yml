@@ -1,0 +1,174 @@
+name: Bootstrap or update SeoHub client
+description: Install or update the public SeoHub thin client without access to the private SeoHub repository.
+
+inputs:
+  operation:
+    description: bootstrap, plan-update, or update.
+    required: false
+    default: bootstrap
+  client_version:
+    description: Immutable 40-character seohub-client commit SHA. Must match the Action ref.
+    required: true
+  project_id:
+    required: false
+    default: ""
+  project_name:
+    required: false
+    default: ""
+  repository:
+    required: false
+    default: ""
+  domain:
+    required: false
+    default: ""
+  timezone:
+    required: false
+    default: "Etc/UTC"
+  enable_yandex_metrika:
+    required: false
+    default: "false"
+  yandex_metrika_counter_id:
+    required: false
+    default: ""
+  yandex_metrika_attribution:
+    required: false
+    default: ""
+  enable_yandex_webmaster:
+    required: false
+    default: "false"
+  yandex_webmaster_host_id:
+    required: false
+    default: ""
+  enable_google_search_console:
+    required: false
+    default: "false"
+  google_search_console_site_url:
+    required: false
+    default: ""
+  enable_topvisor:
+    required: false
+    default: "false"
+  topvisor_project_id:
+    required: false
+    default: ""
+  enable_xmlstock:
+    required: false
+    default: "false"
+
+outputs:
+  result_file:
+    description: Machine-readable lifecycle result.
+    value: ${{ steps.lifecycle.outputs.result_file }}
+  status:
+    description: Lifecycle operation status.
+    value: ${{ steps.lifecycle.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install lifecycle dependency
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --disable-pip-version-check --quiet \
+          -r "${{ github.action_path }}/../../scripts/project_lifecycle/requirements.txt"
+
+    - id: lifecycle
+      name: Run public client lifecycle
+      shell: bash
+      env:
+        INPUT_OPERATION: ${{ inputs.operation }}
+        INPUT_CLIENT_VERSION: ${{ inputs.client_version }}
+        INPUT_PROJECT_ID: ${{ inputs.project_id }}
+        INPUT_PROJECT_NAME: ${{ inputs.project_name }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_DOMAIN: ${{ inputs.domain }}
+        INPUT_TIMEZONE: ${{ inputs.timezone }}
+        ENABLE_METRIKA: ${{ inputs.enable_yandex_metrika }}
+        METRIKA_COUNTER_ID: ${{ inputs.yandex_metrika_counter_id }}
+        METRIKA_ATTRIBUTION: ${{ inputs.yandex_metrika_attribution }}
+        ENABLE_WEBMASTER: ${{ inputs.enable_yandex_webmaster }}
+        WEBMASTER_HOST_ID: ${{ inputs.yandex_webmaster_host_id }}
+        ENABLE_GSC: ${{ inputs.enable_google_search_console }}
+        GSC_SITE_URL: ${{ inputs.google_search_console_site_url }}
+        ENABLE_TOPVISOR: ${{ inputs.enable_topvisor }}
+        TOPVISOR_PROJECT_ID: ${{ inputs.topvisor_project_id }}
+        ENABLE_XMLSTOCK: ${{ inputs.enable_xmlstock }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        root="${{ github.action_path }}/../.."
+        cli="$root/scripts/project_lifecycle/cli.py"
+        result_file="$RUNNER_TEMP/seohub-client-lifecycle.json"
+
+        case "$INPUT_OPERATION" in
+          bootstrap|plan-update|update) ;;
+          *) echo "operation must be bootstrap, plan-update, or update" >&2; exit 64 ;;
+        esac
+        if [[ ! "$INPUT_CLIENT_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "client_version must be an immutable 40-character SHA" >&2
+          exit 64
+        fi
+        if [[ "$ACTION_REPOSITORY" != "finandsilesters-ui/seohub-client" || "$ACTION_REF" != "$INPUT_CLIENT_VERSION" ]]; then
+          echo "public Action repository/ref does not match client_version" >&2
+          exit 64
+        fi
+        for value in "$ENABLE_METRIKA" "$ENABLE_WEBMASTER" "$ENABLE_GSC" "$ENABLE_TOPVISOR" "$ENABLE_XMLSTOCK"; do
+          [[ "$value" == "true" || "$value" == "false" ]] || { echo "source enable inputs must be true/false" >&2; exit 64; }
+        done
+
+        common=(
+          --source-root "$root"
+          --trusted-action-repository "$ACTION_REPOSITORY"
+          --trusted-action-ref "$ACTION_REF"
+        )
+
+        if [[ "$INPUT_OPERATION" == "bootstrap" ]]; then
+          for value in "$INPUT_PROJECT_ID" "$INPUT_PROJECT_NAME" "$INPUT_REPOSITORY" "$INPUT_DOMAIN" "$INPUT_TIMEZONE"; do
+            [[ -n "$value" ]] || { echo "project identity inputs are required for bootstrap" >&2; exit 64; }
+          done
+          args=(
+            bootstrap
+            --target "$GITHUB_WORKSPACE"
+            --client-version "$INPUT_CLIENT_VERSION"
+            --project-id "$INPUT_PROJECT_ID"
+            --name "$INPUT_PROJECT_NAME"
+            --repository "$INPUT_REPOSITORY"
+            --domain "$INPUT_DOMAIN"
+            --timezone "$INPUT_TIMEZONE"
+          )
+          [[ "$ENABLE_METRIKA" == "true" ]] && args+=(--enable-yandex-metrika --yandex-metrika-counter-id "$METRIKA_COUNTER_ID" --yandex-metrika-attribution "$METRIKA_ATTRIBUTION")
+          [[ "$ENABLE_WEBMASTER" == "true" ]] && args+=(--enable-yandex-webmaster --yandex-webmaster-host-id "$WEBMASTER_HOST_ID")
+          [[ "$ENABLE_GSC" == "true" ]] && args+=(--enable-google-search-console --google-search-console-site-url "$GSC_SITE_URL")
+          [[ "$ENABLE_TOPVISOR" == "true" ]] && args+=(--enable-topvisor --topvisor-project-id "$TOPVISOR_PROJECT_ID")
+          [[ "$ENABLE_XMLSTOCK" == "true" ]] && args+=(--enable-xmlstock)
+        else
+          args=("$INPUT_OPERATION" --target "$GITHUB_WORKSPACE" --client-version "$INPUT_CLIENT_VERSION")
+        fi
+
+        python3 "$cli" "${common[@]}" "${args[@]}" | tee "$result_file"
+        status="$(jq -r '.status' "$result_file")"
+        echo "result_file=$result_file" >> "$GITHUB_OUTPUT"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+        RESULT_FILE="$result_file" python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+        import json
+        import os
+        from pathlib import Path
+
+        result = json.loads(Path(os.environ["RESULT_FILE"]).read_text(encoding="utf-8"))
+        print("## SeoHub client lifecycle")
+        print(f"- operation: {result.get('operation')}")
+        print(f"- status: {result.get('status')}")
+        print(f"- installed_version: {result.get('installed_version') or result.get('target_version')}")
+        checklist = result.get("secrets")
+        if isinstance(checklist, dict):
+            print("\n### Secrets to configure after installation")
+            for item in checklist.get("secrets", []):
+                requirement = "required" if item.get("required") else "conditional"
+                print(f"- {item['name']} ({requirement})")
+            print("\n### Repository variables")
+            for item in checklist.get("repository_variables", []):
+                print(f"- {item['name']}")
+        PY

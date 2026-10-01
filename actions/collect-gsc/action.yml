@@ -1,0 +1,160 @@
+name: Collect Google Search Console
+description: Collect normalized Google Search Console search-performance data.
+
+inputs:
+  project:
+    description: Stable SeoHub project ID.
+    required: true
+  expected_domain:
+    description: Expected site domain used only to match properties returned by Sites API.
+    required: true
+  site_url:
+    description: Optional exact Search Console property already confirmed by Sites API.
+    required: false
+    default: ""
+  credentials_json:
+    description: Google service-account, authorized-user, or OAuth client JSON stored as a GitHub Secret.
+    required: true
+  oauth_refresh_token:
+    description: Refresh token required only when credentials_json is OAuth client JSON.
+    required: false
+    default: ""
+  days:
+    description: Number of previous complete PT days to request when explicit dates are omitted.
+    required: false
+    default: "14"
+  date_from:
+    description: Optional explicit start date in Search Console PT date semantics.
+    required: false
+    default: ""
+  date_to:
+    description: Optional explicit end date in Search Console PT date semantics.
+    required: false
+    default: ""
+  history_dir:
+    description: Optional normalized history directory. Enables persistent monthly GSC history merging.
+    required: false
+    default: ""
+  output_dir:
+    description: Snapshot output directory when history_dir is not used.
+    required: false
+    default: data/snapshots/google_search_console
+  output_file:
+    description: Optional exact snapshot output path when history_dir is not used.
+    required: false
+    default: ""
+
+outputs:
+  snapshot_path:
+    description: Temporary or persisted normalized Search Console snapshot path.
+    value: ${{ steps.collect.outputs.snapshot_path }}
+  manifest_path:
+    description: History manifest path when history_dir is used.
+    value: ${{ steps.collect.outputs.manifest_path }}
+  storage_cli_path:
+    description: Shared storage CLI path for verified post-validation pruning/materialization.
+    value: ${{ steps.collect.outputs.storage_cli_path }}
+  site_url:
+    description: Search Console property confirmed through Sites API.
+    value: ${{ steps.collect.outputs.site_url }}
+  permission_level:
+    description: Permission level returned by Sites API.
+    value: ${{ steps.collect.outputs.permission_level }}
+  credentials_type:
+    description: Structural credential type; never contains credential values.
+    value: ${{ steps.collect.outputs.credentials_type }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Google auth dependency
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --disable-pip-version-check --quiet \
+          -r "${{ github.action_path }}/../../scripts/gsc/requirements.txt"
+
+    - id: collect
+      shell: bash
+      env:
+        GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON: ${{ inputs.credentials_json }}
+        GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN: ${{ inputs.oauth_refresh_token }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_EXPECTED_DOMAIN: ${{ inputs.expected_domain }}
+        INPUT_SITE_URL: ${{ inputs.site_url }}
+        INPUT_DAYS: ${{ inputs.days }}
+        INPUT_DATE_FROM: ${{ inputs.date_from }}
+        INPUT_DATE_TO: ${{ inputs.date_to }}
+        INPUT_HISTORY_DIR: ${{ inputs.history_dir }}
+        INPUT_OUTPUT_DIR: ${{ inputs.output_dir }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output_file }}
+      run: |
+        set -euo pipefail
+
+        args=(
+          --project "$INPUT_PROJECT"
+          --expected-domain "$INPUT_EXPECTED_DOMAIN"
+          --days "$INPUT_DAYS"
+        )
+
+        if [[ -n "$INPUT_SITE_URL" ]]; then
+          args+=(--site-url "$INPUT_SITE_URL")
+        fi
+        if [[ -n "$INPUT_DATE_FROM" || -n "$INPUT_DATE_TO" ]]; then
+          args+=(--date-from "$INPUT_DATE_FROM" --date-to "$INPUT_DATE_TO")
+        fi
+
+        if [[ -n "$INPUT_HISTORY_DIR" ]]; then
+          snapshot_path="$RUNNER_TEMP/seohub-gsc-snapshot.json"
+          args+=(--output-file "$snapshot_path")
+        else
+          args+=(--output-dir "$INPUT_OUTPUT_DIR")
+          if [[ -n "$INPUT_OUTPUT_FILE" ]]; then
+            args+=(--output-file "$INPUT_OUTPUT_FILE")
+          fi
+        fi
+
+        snapshot_path="$(
+          python3 "${{ github.action_path }}/../../scripts/gsc/collect.py" "${args[@]}"
+        )"
+        echo "snapshot_path=$snapshot_path" >> "$GITHUB_OUTPUT"
+
+        SNAPSHOT_PATH="$snapshot_path" python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        import os
+        from pathlib import Path
+
+        snapshot = json.loads(Path(os.environ["SNAPSHOT_PATH"]).read_text(encoding="utf-8"))
+        print(f"site_url={snapshot['property']['site_url']}")
+        print(f"permission_level={snapshot['property']['permission_level']}")
+        print(f"credentials_type={snapshot['methodology']['credentials_type']}")
+        PY
+
+        storage_cli="${{ github.action_path }}/../../scripts/storage/cli.py"
+        echo "storage_cli_path=$storage_cli" >> "$GITHUB_OUTPUT"
+
+        if [[ -n "$INPUT_HISTORY_DIR" ]]; then
+          if [[ -f "$INPUT_HISTORY_DIR/storage-refs.json" ]]; then
+            if [[ "${SEOHUB_STORAGE_BACKEND:-}" == "s3" || -n "${SEOHUB_STORAGE_S3_BUCKET:-}" ]]; then
+              python3 -m pip install --disable-pip-version-check --quiet \
+                -r "${{ github.action_path }}/../../scripts/storage/requirements-s3.txt"
+            fi
+            python3 "$storage_cli" materialize \
+              --history-dir "$INPUT_HISTORY_DIR" \
+              --all
+          fi
+
+          changed_file="$RUNNER_TEMP/seohub-gsc-history-changed.txt"
+          python3 "${{ github.action_path }}/../../scripts/gsc/history.py" \
+            --snapshot "$snapshot_path" \
+            --history-dir "$INPUT_HISTORY_DIR" | tee "$changed_file"
+
+          if [[ -f "$INPUT_HISTORY_DIR/storage-refs.json" ]]; then
+            python3 "$storage_cli" externalize-changed \
+              --history-dir "$INPUT_HISTORY_DIR" \
+              --project "$INPUT_PROJECT" \
+              --source google_search_console \
+              --changed-file "$changed_file"
+          fi
+          echo "manifest_path=$INPUT_HISTORY_DIR/manifest.json" >> "$GITHUB_OUTPUT"
+        fi
