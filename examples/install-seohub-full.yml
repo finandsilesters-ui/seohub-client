@@ -28,10 +28,10 @@ jobs:
 
       - id: seohub
         name: Install or update SeoHub public client
-        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@__PUBLIC_CLIENT_SHA__
+        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@4b21a40529f6f9f0f71b9787645ead44d150d92d
         with:
           operation: ${{ inputs.operation }}
-          client_version: __PUBLIC_CLIENT_SHA__
+          client_version: 4b21a40529f6f9f0f71b9787645ead44d150d92d
           project_id: seo-test
           project_name: SeoHub Test
           repository: alexfchkjob-stack/seo-test

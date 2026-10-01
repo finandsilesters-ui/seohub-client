@@ -3,7 +3,7 @@
   "origin_repository": "finandsilesters-ui/SeoHub",
   "origin_revision": "da8d3bd1d12f31aacc53cf68c8c3024c46546385",
   "client_repository": "finandsilesters-ui/seohub-client",
-  "public_client_revision": null,
+  "public_client_revision": "4b21a40529f6f9f0f71b9787645ead44d150d92d",
   "files": [
     ".github/workflows/test-public-client.yml",
     "README.md",
