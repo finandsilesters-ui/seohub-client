@@ -1,0 +1,100 @@
+name: Collect Yandex Webmaster
+description: Collect normalized SEO data from Yandex Webmaster API 4.1.
+
+inputs:
+  project:
+    description: Stable SeoHub project ID.
+    required: true
+  host_id:
+    description: Yandex Webmaster host ID, for example https:example.com:443.
+    required: true
+  timezone:
+    description: Project timezone used to resolve complete-day periods.
+    required: true
+  token:
+    description: Yandex Webmaster OAuth token.
+    required: true
+  days:
+    description: Number of complete days to collect when explicit dates are omitted.
+    required: false
+    default: "14"
+  date_from:
+    description: Optional explicit start date in YYYY-MM-DD format.
+    required: false
+    default: ""
+  date_to:
+    description: Optional explicit end date in YYYY-MM-DD format.
+    required: false
+    default: ""
+  history_dir:
+    description: Optional normalized history directory. Enables persistent Webmaster history merging.
+    required: false
+    default: ""
+  output_dir:
+    description: Snapshot output directory when history_dir is not used.
+    required: false
+    default: data/snapshots/yandex_webmaster
+  output_file:
+    description: Optional exact snapshot output path when history_dir is not used.
+    required: false
+    default: ""
+
+outputs:
+  snapshot_path:
+    description: Temporary or persisted normalized Webmaster snapshot path.
+    value: ${{ steps.collect.outputs.snapshot_path }}
+  manifest_path:
+    description: History manifest path when history_dir is used.
+    value: ${{ steps.collect.outputs.manifest_path }}
+
+runs:
+  using: composite
+  steps:
+    - id: collect
+      shell: bash
+      env:
+        YANDEX_WEBMASTER_TOKEN: ${{ inputs.token }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_HOST_ID: ${{ inputs.host_id }}
+        INPUT_TIMEZONE: ${{ inputs.timezone }}
+        INPUT_DAYS: ${{ inputs.days }}
+        INPUT_DATE_FROM: ${{ inputs.date_from }}
+        INPUT_DATE_TO: ${{ inputs.date_to }}
+        INPUT_HISTORY_DIR: ${{ inputs.history_dir }}
+        INPUT_OUTPUT_DIR: ${{ inputs.output_dir }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output_file }}
+      run: |
+        set -euo pipefail
+
+        args=(
+          --project "$INPUT_PROJECT"
+          --host-id "$INPUT_HOST_ID"
+          --timezone "$INPUT_TIMEZONE"
+          --days "$INPUT_DAYS"
+        )
+
+        if [[ -n "$INPUT_DATE_FROM" || -n "$INPUT_DATE_TO" ]]; then
+          args+=(--date-from "$INPUT_DATE_FROM" --date-to "$INPUT_DATE_TO")
+        fi
+
+        if [[ -n "$INPUT_HISTORY_DIR" ]]; then
+          snapshot_path="$RUNNER_TEMP/seohub-webmaster-snapshot.json"
+          args+=(--output-file "$snapshot_path")
+        else
+          args+=(--output-dir "$INPUT_OUTPUT_DIR")
+          if [[ -n "$INPUT_OUTPUT_FILE" ]]; then
+            args+=(--output-file "$INPUT_OUTPUT_FILE")
+          fi
+        fi
+
+        snapshot_path="$(
+          python3 "${{ github.action_path }}/../../scripts/webmaster/collect.py" "${args[@]}"
+        )"
+        echo "snapshot_path=$snapshot_path" >> "$GITHUB_OUTPUT"
+
+        if [[ -n "$INPUT_HISTORY_DIR" ]]; then
+          python3 "${{ github.action_path }}/../../scripts/webmaster/history.py" \
+            --snapshot "$snapshot_path" \
+            --history-dir "$INPUT_HISTORY_DIR"
+          echo "manifest_path=$INPUT_HISTORY_DIR/manifest.json" >> "$GITHUB_OUTPUT"
+        fi

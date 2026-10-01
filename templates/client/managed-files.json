@@ -1,0 +1,26 @@
+{
+  "schema_version": "seohub_managed_files_v1",
+  "source_repository": "finandsilesters-ui/seohub-client",
+  "files": [
+    {
+      "target": ".github/workflows/seohub-readiness.yml",
+      "template": "templates/client/workflows/seohub-readiness.yml"
+    },
+    {
+      "target": ".github/workflows/collect-metrika.yml",
+      "template": "templates/client/workflows/collect-metrika.yml"
+    },
+    {
+      "target": ".github/workflows/collect-gsc.yml",
+      "template": "templates/client/workflows/collect-gsc.yml"
+    },
+    {
+      "target": ".github/workflows/collect-webmaster.yml",
+      "template": "templates/client/workflows/collect-webmaster.yml"
+    },
+    {
+      "target": ".github/workflows/generate-current-state.yml",
+      "template": "templates/client/workflows/generate-current-state.yml"
+    }
+  ]
+}

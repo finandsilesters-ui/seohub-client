@@ -1,0 +1,109 @@
+name: SeoHub hosted request
+description: Call the hosted SeoHub control plane with a short-lived GitHub Actions OIDC token.
+
+inputs:
+  base_url:
+    description: HTTPS base URL of the hosted SeoHub control plane.
+    required: true
+  path:
+    description: Authenticated API path. Must start with /v1/.
+    required: true
+  method:
+    description: HTTP method (GET, POST, or PUT).
+    required: false
+    default: GET
+  audience:
+    description: GitHub OIDC audience expected by the hosted control plane.
+    required: false
+    default: seohub-hosted-v1
+  body_json:
+    description: Optional JSON request body for POST/PUT requests.
+    required: false
+    default: ""
+
+outputs:
+  response_file:
+    description: Path to the response body file on the runner.
+    value: ${{ steps.request.outputs.response_file }}
+
+runs:
+  using: composite
+  steps:
+    - id: request
+      name: Call hosted control plane
+      shell: bash
+      env:
+        INPUT_BASE_URL: ${{ inputs.base_url }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_METHOD: ${{ inputs.method }}
+        INPUT_AUDIENCE: ${{ inputs.audience }}
+        INPUT_BODY_JSON: ${{ inputs.body_json }}
+      run: |
+        set -euo pipefail
+
+        case "$INPUT_BASE_URL" in
+          https://*) ;;
+          *)
+            echo "base_url must use HTTPS" >&2
+            exit 64
+            ;;
+        esac
+
+        case "$INPUT_PATH" in
+          /v1/*) ;;
+          *)
+            echo "path must start with /v1/" >&2
+            exit 64
+            ;;
+        esac
+
+        METHOD="$(printf '%s' "$INPUT_METHOD" | tr '[:lower:]' '[:upper:]')"
+        case "$METHOD" in
+          GET|POST|PUT) ;;
+          *)
+            echo "method must be GET, POST, or PUT" >&2
+            exit 64
+            ;;
+        esac
+
+        if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+          echo "GitHub OIDC is unavailable. Caller must grant permissions: id-token: write" >&2
+          exit 65
+        fi
+
+        AUDIENCE_ENCODED="$(jq -rn --arg value "$INPUT_AUDIENCE" '$value|@uri')"
+        TOKEN_RESPONSE="$(
+          curl --fail --silent --show-error             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE_ENCODED}"
+        )"
+        TOKEN="$(jq -er '.value' <<<"$TOKEN_RESPONSE")"
+        echo "::add-mask::$TOKEN"
+
+        RESPONSE_FILE="$(mktemp "$RUNNER_TEMP/seohub-hosted-response.XXXXXX.json")"
+        URL="${INPUT_BASE_URL%/}${INPUT_PATH}"
+
+        CURL_ARGS=(
+          --fail-with-body
+          --silent
+          --show-error
+          --request "$METHOD"
+          --header "Authorization: Bearer $TOKEN"
+          --header "Accept: application/json"
+          --output "$RESPONSE_FILE"
+        )
+
+        if [[ -n "$INPUT_BODY_JSON" ]]; then
+          jq -e . >/dev/null <<<"$INPUT_BODY_JSON"
+          CURL_ARGS+=(
+            --header "Content-Type: application/json"
+            --data-binary "$INPUT_BODY_JSON"
+          )
+        fi
+
+        if ! curl "${CURL_ARGS[@]}" "$URL"; then
+          echo "Hosted control-plane request failed: $METHOD $INPUT_PATH" >&2
+          cat "$RESPONSE_FILE" >&2 || true
+          exit 1
+        fi
+
+        jq -e . >/dev/null < "$RESPONSE_FILE"
+        echo "response_file=$RESPONSE_FILE" >> "$GITHUB_OUTPUT"
