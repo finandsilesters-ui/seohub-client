@@ -32,6 +32,6 @@
   ],
   "origin_repository": "finandsilesters-ui/SeoHub",
   "origin_revision": "299c2aebaac043e50e2e2b56f897f0378383c259",
-  "public_client_revision": null,
+  "public_client_revision": "a7726b9983e2f65c62af14a00e9b070a090b2ffd",
   "schema_version": "seohub_public_client_distribution_v1"
 }

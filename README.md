@@ -78,7 +78,7 @@ The hosted response is a deterministic artifact delta. For a `write`, the client
 
 A new repository needs one project-owned installer workflow before Actions can run. Copy `examples/install-seohub-full.yml` to `.github/workflows/install-seohub.yml`, pin both the Action reference and `client_version` to the same accepted immutable 40-character public client SHA, commit it, and run **Install SeoHub**.
 
-Release preparation replaces the marker `__PUBLIC_CLIENT_SHA__` with the reviewer-accepted immutable public revision; production instructions must never use `@main` or a feature-branch ref.
+Release preparation replaces the marker `a7726b9983e2f65c62af14a00e9b070a090b2ffd` with the reviewer-accepted immutable public revision; production instructions must never use `@main` or a feature-branch ref.
 
 The installer creates:
 
