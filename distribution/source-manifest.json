@@ -31,7 +31,7 @@
     "tests/test_public_bundle.py"
   ],
   "origin_repository": "finandsilesters-ui/SeoHub",
-  "origin_revision": "0c35d63fc3089d3c82ff5206340f7e659af64293",
+  "origin_revision": "3d4406c857903fdf0936723ed50a4701a04ea53b",
   "public_client_revision": null,
   "schema_version": "seohub_public_client_distribution_v1"
 }

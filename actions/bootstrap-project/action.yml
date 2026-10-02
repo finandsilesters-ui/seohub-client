@@ -96,6 +96,8 @@ runs:
         ENABLE_XMLSTOCK: ${{ inputs.enable_xmlstock }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
+        WORKFLOW_REPOSITORY: ${{ github.repository }}
+        WORKFLOW_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
         root="${{ github.action_path }}/../.."
@@ -109,6 +111,12 @@ runs:
         if [[ ! "$INPUT_CLIENT_VERSION" =~ ^[0-9a-f]{40}$ ]]; then
           echo "client_version must be an immutable 40-character SHA" >&2
           exit 64
+        fi
+        if [[ -z "$ACTION_REPOSITORY" && -z "$ACTION_REF" ]]; then
+          if [[ "$WORKFLOW_REPOSITORY" == "finandsilesters-ui/seohub-client" && "$WORKFLOW_SHA" == "$INPUT_CLIENT_VERSION" && "$root" == "$GITHUB_WORKSPACE" ]]; then
+            ACTION_REPOSITORY="$WORKFLOW_REPOSITORY"
+            ACTION_REF="$WORKFLOW_SHA"
+          fi
         fi
         if [[ "$ACTION_REPOSITORY" != "finandsilesters-ui/seohub-client" || "$ACTION_REF" != "$INPUT_CLIENT_VERSION" ]]; then
           echo "public Action repository/ref does not match client_version" >&2
