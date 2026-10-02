@@ -1,0 +1,218 @@
+name: SeoHub hosted operation
+description: Execute a typed SeoHub source or analytical operation through the authorized hosted control plane.
+
+inputs:
+  operation:
+    required: true
+  base_url:
+    required: true
+  audience:
+    required: false
+    default: seohub-hosted-v1
+  project_id:
+    required: true
+  counter_id:
+    required: false
+    default: ""
+  attribution:
+    required: false
+    default: ""
+  expected_domain:
+    required: false
+    default: ""
+  site_url:
+    required: false
+    default: ""
+  host_id:
+    required: false
+    default: ""
+  timezone:
+    required: false
+    default: ""
+  provider_project_id:
+    required: false
+    default: ""
+  effective_at:
+    required: false
+    default: ""
+  days:
+    required: false
+    default: "14"
+  date_from:
+    required: false
+    default: ""
+  date_to:
+    required: false
+    default: ""
+  current_from:
+    required: false
+    default: ""
+  current_until:
+    required: false
+    default: ""
+  previous_from:
+    required: false
+    default: ""
+  previous_until:
+    required: false
+    default: ""
+  mover_limit:
+    required: false
+    default: "5"
+  project_domain:
+    required: false
+    default: ""
+  profile_id:
+    required: false
+    default: ""
+  generated_at:
+    required: false
+    default: ""
+  traffic_days:
+    required: false
+    default: "7"
+  traffic_current_until:
+    required: false
+    default: ""
+  domain_limit:
+    required: false
+    default: "10"
+  yandex_metrika_token:
+    required: false
+    default: ""
+  yandex_webmaster_token:
+    required: false
+    default: ""
+  google_search_console_credentials_json:
+    required: false
+    default: ""
+  google_search_console_refresh_token:
+    required: false
+    default: ""
+  topvisor_user_id:
+    required: false
+    default: ""
+  topvisor_api_key:
+    required: false
+    default: ""
+  storage_backend:
+    required: false
+    default: ""
+  storage_s3_bucket:
+    required: false
+    default: ""
+  storage_s3_prefix:
+    required: false
+    default: ""
+  storage_s3_endpoint_url:
+    required: false
+    default: ""
+  storage_s3_region:
+    required: false
+    default: ""
+  storage_s3_access_key_id:
+    required: false
+    default: ""
+  storage_s3_secret_access_key:
+    required: false
+    default: ""
+  storage_s3_session_token:
+    required: false
+    default: ""
+
+outputs:
+  result:
+    value: ${{ steps.run.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        INPUT_OPERATION: ${{ inputs.operation }}
+        INPUT_BASE_URL: ${{ inputs.base_url }}
+        INPUT_AUDIENCE: ${{ inputs.audience }}
+        INPUT_PROJECT_ID: ${{ inputs.project_id }}
+        INPUT_COUNTER_ID: ${{ inputs.counter_id }}
+        INPUT_ATTRIBUTION: ${{ inputs.attribution }}
+        INPUT_EXPECTED_DOMAIN: ${{ inputs.expected_domain }}
+        INPUT_SITE_URL: ${{ inputs.site_url }}
+        INPUT_HOST_ID: ${{ inputs.host_id }}
+        INPUT_TIMEZONE: ${{ inputs.timezone }}
+        INPUT_PROVIDER_PROJECT_ID: ${{ inputs.provider_project_id }}
+        INPUT_EFFECTIVE_AT: ${{ inputs.effective_at }}
+        INPUT_DAYS: ${{ inputs.days }}
+        INPUT_DATE_FROM: ${{ inputs.date_from }}
+        INPUT_DATE_TO: ${{ inputs.date_to }}
+        INPUT_CURRENT_FROM: ${{ inputs.current_from }}
+        INPUT_CURRENT_UNTIL: ${{ inputs.current_until }}
+        INPUT_PREVIOUS_FROM: ${{ inputs.previous_from }}
+        INPUT_PREVIOUS_UNTIL: ${{ inputs.previous_until }}
+        INPUT_MOVER_LIMIT: ${{ inputs.mover_limit }}
+        INPUT_PROJECT_DOMAIN: ${{ inputs.project_domain }}
+        INPUT_PROFILE_ID: ${{ inputs.profile_id }}
+        INPUT_GENERATED_AT: ${{ inputs.generated_at }}
+        INPUT_TRAFFIC_DAYS: ${{ inputs.traffic_days }}
+        INPUT_TRAFFIC_CURRENT_UNTIL: ${{ inputs.traffic_current_until }}
+        INPUT_DOMAIN_LIMIT: ${{ inputs.domain_limit }}
+        YANDEX_METRIKA_TOKEN: ${{ inputs.yandex_metrika_token }}
+        YANDEX_WEBMASTER_TOKEN: ${{ inputs.yandex_webmaster_token }}
+        GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON: ${{ inputs.google_search_console_credentials_json }}
+        GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN: ${{ inputs.google_search_console_refresh_token }}
+        TOPVISOR_USER_ID: ${{ inputs.topvisor_user_id }}
+        TOPVISOR_API_KEY: ${{ inputs.topvisor_api_key }}
+        SEOHUB_STORAGE_BACKEND: ${{ inputs.storage_backend }}
+        SEOHUB_STORAGE_S3_BUCKET: ${{ inputs.storage_s3_bucket }}
+        SEOHUB_STORAGE_S3_PREFIX: ${{ inputs.storage_s3_prefix }}
+        SEOHUB_STORAGE_S3_ENDPOINT_URL: ${{ inputs.storage_s3_endpoint_url }}
+        SEOHUB_STORAGE_S3_REGION: ${{ inputs.storage_s3_region }}
+        SEOHUB_STORAGE_S3_ACCESS_KEY_ID: ${{ inputs.storage_s3_access_key_id }}
+        SEOHUB_STORAGE_S3_SECRET_ACCESS_KEY: ${{ inputs.storage_s3_secret_access_key }}
+        SEOHUB_STORAGE_S3_SESSION_TOKEN: ${{ inputs.storage_s3_session_token }}
+      run: |
+        set -euo pipefail
+        if [[ "$SEOHUB_STORAGE_BACKEND" == "s3" || -n "$SEOHUB_STORAGE_S3_BUCKET" ]]; then
+          python3 -m pip install --disable-pip-version-check --quiet \
+            -r "${{ github.action_path }}/../../scripts/storage/requirements-s3.txt"
+        fi
+        args=(
+          "$INPUT_OPERATION"
+          --base-url "$INPUT_BASE_URL"
+          --audience "$INPUT_AUDIENCE"
+          --project-root "$GITHUB_WORKSPACE"
+          --project-id "$INPUT_PROJECT_ID"
+          --days "$INPUT_DAYS"
+          --mover-limit "$INPUT_MOVER_LIMIT"
+          --traffic-days "$INPUT_TRAFFIC_DAYS"
+          --domain-limit "$INPUT_DOMAIN_LIMIT"
+        )
+        add_arg() {
+          if [[ -n "$2" ]]; then args+=("$1" "$2"); fi
+        }
+        add_arg --counter-id "$INPUT_COUNTER_ID"
+        add_arg --attribution "$INPUT_ATTRIBUTION"
+        add_arg --expected-domain "$INPUT_EXPECTED_DOMAIN"
+        add_arg --site-url "$INPUT_SITE_URL"
+        add_arg --host-id "$INPUT_HOST_ID"
+        add_arg --timezone "$INPUT_TIMEZONE"
+        add_arg --provider-project-id "$INPUT_PROVIDER_PROJECT_ID"
+        add_arg --effective-at "$INPUT_EFFECTIVE_AT"
+        add_arg --date-from "$INPUT_DATE_FROM"
+        add_arg --date-to "$INPUT_DATE_TO"
+        add_arg --current-from "$INPUT_CURRENT_FROM"
+        add_arg --current-until "$INPUT_CURRENT_UNTIL"
+        add_arg --previous-from "$INPUT_PREVIOUS_FROM"
+        add_arg --previous-until "$INPUT_PREVIOUS_UNTIL"
+        add_arg --project-domain "$INPUT_PROJECT_DOMAIN"
+        add_arg --profile-id "$INPUT_PROFILE_ID"
+        add_arg --generated-at "$INPUT_GENERATED_AT"
+        add_arg --traffic-current-until "$INPUT_TRAFFIC_CURRENT_UNTIL"
+
+        result="$(python3 "${{ github.action_path }}/../../scripts/client/hosted.py" "${args[@]}")"
+        printf '%s\n' "$result"
+        {
+          echo 'result<<SEOHUB_EOF'
+          printf '%s\n' "$result"
+          echo 'SEOHUB_EOF'
+        } >> "$GITHUB_OUTPUT"

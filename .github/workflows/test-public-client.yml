@@ -1,4 +1,4 @@
-name: Test public SeoHub client
+name: Test public SeoHub thin client
 
 on:
   push:
@@ -17,36 +17,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install client test dependencies
-        run: |
-          python -m pip install -r scripts/project_lifecycle/requirements.txt
-          python -m pip install -r scripts/gsc/requirements.txt
+        run: python -m pip install -r scripts/project_lifecycle/requirements.txt
 
-      - name: Compile exported Python modules
+      - name: Compile public Python modules
         run: python -m compileall -q scripts
 
-      - name: Smoke-import public runtime entry modules
-        shell: bash
-        run: |
-          python - <<'PY'
-          import importlib
-
-          modules = [
-              "scripts.project_lifecycle.cli",
-              "scripts.metrika.collect",
-              "scripts.metrika.history",
-              "scripts.gsc.collect",
-              "scripts.gsc.history",
-              "scripts.webmaster.collect",
-              "scripts.webmaster.history",
-              "scripts.storage.cli",
-              "scripts.analysis.project_current_state",
-              "scripts.search_measurement.topvisor_semantic_core",
-          ]
-          for module in modules:
-              importlib.import_module(module)
-          PY
-
-      - name: Run public client distribution tests
+      - name: Run public thin-client regression tests
         run: python -m unittest discover -s tests -p 'test_public_bundle.py'
 
       - uses: actions/setup-go@v6
@@ -56,47 +32,14 @@ jobs:
       - name: Install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
-      - name: Full-source bootstrap fixture and actionlint
+      - name: Bootstrap fixture and validate generated workflows
         shell: bash
         run: |
           set -euo pipefail
           target="$RUNNER_TEMP/seohub-public-fixture"
-          output="$RUNNER_TEMP/bootstrap.json"
-          python -m scripts.project_lifecycle.cli bootstrap \
-            --target "$target" \
-            --client-version "$GITHUB_SHA" \
-            --project-id seo-test \
-            --name "SeoHub Test" \
-            --repository alexfchkjob-stack/seo-test \
-            --domain example.com \
-            --timezone Etc/UTC \
-            --enable-yandex-metrika \
-            --yandex-metrika-counter-id "0" \
-            --yandex-metrika-attribution last \
-            --enable-yandex-webmaster \
-            --yandex-webmaster-host-id "https:example.com:443" \
-            --enable-google-search-console \
-            --google-search-console-site-url "https://example.com/" \
-            --enable-topvisor \
-            --topvisor-project-id "0" \
-            --enable-xmlstock > "$output"
+          python -m scripts.project_lifecycle.cli bootstrap             --target "$target"             --client-version "$GITHUB_SHA"             --project-id seo-test             --name "SeoHub Test"             --repository alexfchkjob-stack/seo-test             --domain example.com             --timezone Etc/UTC
 
-          TARGET="$target" python - <<'PY'
-          import os
-          from pathlib import Path
-          import yaml
-          project = yaml.safe_load((Path(os.environ["TARGET"]) / "project.yaml").read_text(encoding="utf-8"))
-          assert project["repository"] == "alexfchkjob-stack/seo-test"
-          PY
-          jq -e '.source_repository == "finandsilesters-ui/seohub-client"' "$target/.seohub/client.json" >/dev/null
-          jq -e '[.secrets.secrets[].name] | sort == [
-            "GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON",
-            "GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN",
-            "TOPVISOR_API_KEY",
-            "TOPVISOR_USER_ID",
-            "YANDEX_METRIKA_TOKEN",
-            "YANDEX_WEBMASTER_TOKEN"
-          ]' "$output" >/dev/null
+          jq -e '.source_repository == "finandsilesters-ui/seohub-client"'             "$target/.seohub/client.json" >/dev/null
 
           private_repo="finandsilesters-ui/SeoHub"
           if grep -R "$private_repo/actions/" "$target/.github/workflows" examples; then
@@ -114,15 +57,16 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - id: install
-        name: Execute packaged bootstrap Action by immutable public SHA
-        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@4b21a40529f6f9f0f71b9787645ead44d150d92d
+        name: Execute packaged bootstrap Action from this checkout
+        uses: ./actions/bootstrap-project
         with:
-          client_version: 4b21a40529f6f9f0f71b9787645ead44d150d92d
+          client_version: ${{ github.sha }}
           project_id: public-action-smoke
           project_name: Public Action Smoke
           repository: finandsilesters-ui/public-action-smoke
@@ -140,4 +84,4 @@ jobs:
           test -f .seohub/client.json
           test -f .github/workflows/seohub-readiness.yml
           jq -e '.source_repository == "finandsilesters-ui/seohub-client"' .seohub/client.json >/dev/null
-          jq -e '.installed_version == "4b21a40529f6f9f0f71b9787645ead44d150d92d"' .seohub/client.json >/dev/null
+          jq -e --arg sha "$GITHUB_SHA" '.installed_version == $sha' .seohub/client.json >/dev/null

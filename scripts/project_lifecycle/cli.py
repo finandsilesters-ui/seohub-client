@@ -76,7 +76,20 @@ SECRET_SPECS: dict[str, list[dict[str, Any]]] = {
             "safe_check": "read-only configured project lookup",
         },
     ],
-    "xmlstock": [],
+    "xmlstock": [
+        {
+            "name": "XMLSTOCK_USER_ID",
+            "required": True,
+            "purpose": "Client-owned XMLStock account identity for hosted paid actions.",
+            "safe_check": "not executed by readiness; paid actions require separate spend authorization",
+        },
+        {
+            "name": "XMLSTOCK_API_KEY",
+            "required": True,
+            "purpose": "Client-owned XMLStock API key for hosted paid actions.",
+            "safe_check": "not executed by readiness; paid actions require separate spend authorization",
+        },
+    ],
 }
 
 
@@ -508,30 +521,40 @@ def url_normalization_gate(project_root: Path) -> dict[str, Any]:
             "reason": "URL normalization must be configured or explicitly recorded as default/empty.",
         }
     if error:
-        return {"status": "malformed_decision", "path": "config/url-normalization.json", "errors": [error]}
-
-    try:
-        from scripts.metrika.url_normalization import (
-            UrlNormalizationError,
-            load_config as load_url_normalization_config,
-        )
-
-        normalized = load_url_normalization_config(path)
-    except UrlNormalizationError as exc:
         return {
             "status": "malformed_decision",
             "path": "config/url-normalization.json",
-            "errors": [str(exc)],
+            "errors": [error],
         }
 
-    rules = normalized["rules"]
+    errors: list[str] = []
+    if data.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+    if not _non_empty_string(data.get("version")):
+        errors.append("version must be a non-empty string")
+    rules = data.get("rules")
+    if not isinstance(rules, list):
+        errors.append("rules must be a list")
+        rules = []
+    else:
+        for index, rule in enumerate(rules):
+            if not isinstance(rule, dict) or not _non_empty_string(rule.get("type")):
+                errors.append(
+                    f"rules[{index}] must be an object with a non-empty type"
+                )
+    if errors:
+        return {
+            "status": "malformed_decision",
+            "path": "config/url-normalization.json",
+            "errors": errors,
+        }
     return {
         "status": "satisfied",
         "path": "config/url-normalization.json",
         "decision": "default_empty" if not rules else "configured",
         "rule_count": len(rules),
+        "validation": "structural_only; hosted execution enforces production methodology",
     }
-
 
 def taxonomy_gate(project_root: Path, config: Mapping[str, Any]) -> dict[str, Any]:
     path = project_root / "config" / "sections.json"
@@ -575,18 +598,6 @@ def taxonomy_gate(project_root: Path, config: Mapping[str, Any]) -> dict[str, An
                 if not isinstance(item.get("rules"), list) or not item["rules"]:
                     errors.append(f"section {section_id} requires at least one deterministic rule")
 
-        # Reuse the production classifier's parser so bootstrap readiness cannot
-        # accept a configured taxonomy that downstream analysis would reject.
-        try:
-            from scripts.analysis.section_classifier import (
-                SectionClassifierError,
-                load_section_taxonomy,
-            )
-
-            load_section_taxonomy(path)
-        except SectionClassifierError as exc:
-            errors.append(f"configured taxonomy is invalid for section classifier: {exc}")
-
         matching = data.get("matching")
         fallback = data.get("fallback")
         if not isinstance(matching, dict):
@@ -623,7 +634,12 @@ def taxonomy_gate(project_root: Path, config: Mapping[str, Any]) -> dict[str, An
             "decision": decision,
             "errors": errors,
         }
-    return {"status": "satisfied", "path": "config/sections.json", "decision": decision}
+    return {
+        "status": "satisfied",
+        "path": "config/sections.json",
+        "decision": decision,
+        "validation": "structural_only; hosted execution enforces production methodology",
+    }
 
 
 def _installation_readiness(project_root: Path) -> dict[str, Any]:
@@ -640,50 +656,18 @@ def _installation_readiness(project_root: Path) -> dict[str, Any]:
     return {"status": "installed", "installed_version": install.get("installed_version")}
 
 
-def _classify_live_error(exc: Exception) -> str:
-    text = str(exc).lower()
-    code = getattr(exc, "code", None)
-    if code in {"auth_error", "permission_error", "invalid_credentials_json", "token_refresh_failed", "refresh_token_required"}:
-        return "auth_failed"
-    if any(token in text for token in ("http 401", "http 403", "unauthorized", "permission", "authentication failed", "credentials")):
-        return "auth_failed"
-    return "source_unavailable_error"
-
-
-def _live_check(source: str, config: Mapping[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
-    raw = config["sources"][source]
-    try:
-        if source == "yandex_metrika":
-            from scripts.metrika.collect import COUNTER_URL, api_get_json
-
-            counter_id = str(raw["counter_id"])
-            data = api_get_json(COUNTER_URL.format(counter_id=counter_id), env["YANDEX_METRIKA_TOKEN"])
-            observed = data.get("counter", {}).get("id") if isinstance(data.get("counter"), dict) else data.get("id")
-            if observed is not None and str(observed) != counter_id:
-                raise RuntimeError("Metrika counter identity mismatch")
-            return {"status": "configured", "auth_checked": True, "check": "management_counter"}
-        if source == "yandex_webmaster":
-            from scripts.webmaster.collect import get_user_id
-
-            get_user_id(env["YANDEX_WEBMASTER_TOKEN"])
-            return {"status": "configured", "auth_checked": True, "check": "user_identity"}
-        if source == "google_search_console":
-            from scripts.gsc.collect import discover_property, get_access_token, list_sites, parse_credentials_json
-
-            kind, info = parse_credentials_json(env["GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON"])
-            token = get_access_token(info, kind, env.get("GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN") or None)
-            sites = list_sites(token)
-            discover_property(sites, expected_domain=str(config["domain"]), site_url=str(raw["site_url"]))
-            return {"status": "configured", "auth_checked": True, "check": "sites_api", "credentials_type": kind}
-        if source == "topvisor":
-            from scripts.search_measurement.topvisor_semantic_core import TopvisorClient, verify_project
-
-            client = TopvisorClient(env["TOPVISOR_USER_ID"], env["TOPVISOR_API_KEY"])
-            verify_project(client, str(raw["project_id"]), str(config["domain"]))
-            return {"status": "configured", "auth_checked": True, "check": "read_only_project_lookup"}
-    except Exception as exc:  # normalized below; secret values are never included
-        return {"status": _classify_live_error(exc), "auth_checked": True, "error_type": exc.__class__.__name__}
-    return {"status": "configured", "auth_checked": False}
+def _live_check(
+    source: str,
+    config: Mapping[str, Any],
+    env: Mapping[str, str],
+) -> dict[str, Any]:
+    # Thin-client v2 never imports or executes provider implementations locally.
+    # The generated GitHub workflow performs the actual OIDC/platform check.
+    return {
+        "status": "configured",
+        "auth_checked": False,
+        "check": "hosted_authorization_required",
+    }
 
 
 def readiness_report(
@@ -781,6 +765,18 @@ def readiness_report(
                 "decisions only. Data analytical readiness still requires compatible normalized "
                 "history, source-quality validation and deterministic analysis."
             ),
+        },
+        "operational_readiness": {
+            "status": "requires_hosted_authorization",
+            "reason": (
+                "Installation, local project configuration and Secret presence do not "
+                "authorize SeoHub execution. The generated workflow must prove the hosted "
+                "endpoint, GitHub OIDC identity, registered repository and active project."
+            ),
+        },
+        "paid_capability_readiness": {
+            "status": "not_tested",
+            "reason": "Readiness never performs a paid XMLStock request.",
         },
         "hosted_oidc": {
             "status": "checked_by_generated_github_workflow",

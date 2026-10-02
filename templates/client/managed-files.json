@@ -19,8 +19,16 @@
       "template": "templates/client/workflows/collect-webmaster.yml"
     },
     {
+      "target": ".github/workflows/inspect-topvisor-semantic-core.yml",
+      "template": "templates/client/workflows/inspect-topvisor-semantic-core.yml"
+    },
+    {
       "target": ".github/workflows/generate-current-state.yml",
       "template": "templates/client/workflows/generate-current-state.yml"
+    },
+    {
+      "target": ".github/workflows/run-analysis.yml",
+      "template": "templates/client/workflows/run-analysis.yml"
     }
   ]
 }

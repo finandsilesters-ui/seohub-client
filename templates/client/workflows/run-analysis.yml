@@ -1,15 +1,31 @@
-name: Collect Yandex Webmaster
+name: Run SeoHub analysis
 
 on:
   workflow_dispatch:
     inputs:
-      date_from:
-        description: Optional explicit start date (YYYY-MM-DD)
-        required: false
+      operation:
+        description: Hosted deterministic analysis
+        required: true
+        type: choice
+        default: traffic-summary
+        options:
+          - traffic-summary
+          - period-analysis
+      current_from:
+        description: Current period start (YYYY-MM-DD)
+        required: true
         type: string
-      date_to:
-        description: Optional explicit end date (YYYY-MM-DD)
-        required: false
+      current_until:
+        description: Current period end (YYYY-MM-DD)
+        required: true
+        type: string
+      previous_from:
+        description: Previous period start (YYYY-MM-DD)
+        required: true
+        type: string
+      previous_until:
+        description: Previous period end (YYYY-MM-DD)
+        required: true
         type: string
 
 permissions:
@@ -21,7 +37,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  collect:
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,7 +48,6 @@ jobs:
         with:
           python-version: "3.12"
       - id: config
-        name: Read project configuration
         shell: bash
         run: |
           set -euo pipefail
@@ -41,28 +56,20 @@ jobs:
           import yaml
           from pathlib import Path
           c = yaml.safe_load(Path("project.yaml").read_text(encoding="utf-8"))
-          s = c.get("sources", {}).get("yandex_webmaster", {})
-          enabled = bool(s.get("enabled", False))
-          print(f"enabled={'true' if enabled else 'false'}")
-          if enabled:
-              if not s.get("host_id"):
-                  raise SystemExit("project.yaml: sources.yandex_webmaster.host_id is required")
-              print(f"project_id={c['id']}")
-              print(f"host_id={s['host_id']}")
-              print(f"timezone={c['timezone']}")
+          if not c.get("id"):
+              raise SystemExit("project.yaml: id is required")
+          print(f"project_id={c['id']}")
           PY
-      - if: steps.config.outputs.enabled == 'true'
-        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/hosted-operation@__SEOHUB_CLIENT_VERSION__
+      - uses: __SEOHUB_CLIENT_REPOSITORY__/actions/hosted-operation@__SEOHUB_CLIENT_VERSION__
         with:
-          operation: webmaster
+          operation: ${{ inputs.operation }}
           base_url: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
           project_id: ${{ steps.config.outputs.project_id }}
-          host_id: ${{ steps.config.outputs.host_id }}
-          timezone: ${{ steps.config.outputs.timezone }}
-          days: "14"
-          date_from: ${{ inputs.date_from }}
-          date_to: ${{ inputs.date_to }}
-          yandex_webmaster_token: ${{ secrets.YANDEX_WEBMASTER_TOKEN }}
+          current_from: ${{ inputs.current_from }}
+          current_until: ${{ inputs.current_until }}
+          previous_from: ${{ inputs.previous_from }}
+          previous_until: ${{ inputs.previous_until }}
+          mover_limit: "5"
           storage_backend: ${{ vars.SEOHUB_STORAGE_BACKEND }}
           storage_s3_bucket: ${{ vars.SEOHUB_STORAGE_S3_BUCKET }}
           storage_s3_prefix: ${{ vars.SEOHUB_STORAGE_S3_PREFIX }}
@@ -71,14 +78,13 @@ jobs:
           storage_s3_access_key_id: ${{ secrets.SEOHUB_STORAGE_S3_ACCESS_KEY_ID }}
           storage_s3_secret_access_key: ${{ secrets.SEOHUB_STORAGE_S3_SECRET_ACCESS_KEY }}
           storage_s3_session_token: ${{ secrets.SEOHUB_STORAGE_S3_SESSION_TOKEN }}
-      - name: Commit hosted Webmaster result
-        if: steps.config.outputs.enabled == 'true'
+      - name: Commit compact analytical artifact
         shell: bash
         run: |
           set -euo pipefail
-          git add data/normalized/yandex_webmaster
+          git add data/aggregates
           if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "data: refresh Yandex Webmaster through hosted SeoHub"
+          git commit -m "data: run deterministic analysis through hosted SeoHub"
           git push origin "HEAD:${GITHUB_REF_NAME}"

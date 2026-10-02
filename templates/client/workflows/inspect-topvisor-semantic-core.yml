@@ -1,0 +1,64 @@
+name: Inspect Topvisor semantic core
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.repository_id }}-seohub-writer
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet PyYAML==6.0.2
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import yaml
+          from pathlib import Path
+          c = yaml.safe_load(Path("project.yaml").read_text(encoding="utf-8"))
+          s = c.get("sources", {}).get("topvisor", {})
+          enabled = bool(s.get("enabled", False))
+          print(f"enabled={'true' if enabled else 'false'}")
+          if enabled:
+              if not s.get("project_id"):
+                  raise SystemExit("project.yaml: sources.topvisor.project_id is required")
+              print(f"project_id={c['id']}")
+              print(f"domain={c['domain']}")
+              print(f"provider_project_id={s['project_id']}")
+          PY
+      - if: steps.config.outputs.enabled == 'true'
+        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/hosted-operation@__SEOHUB_CLIENT_VERSION__
+        with:
+          operation: topvisor
+          base_url: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
+          project_id: ${{ steps.config.outputs.project_id }}
+          provider_project_id: ${{ steps.config.outputs.provider_project_id }}
+          expected_domain: ${{ steps.config.outputs.domain }}
+          topvisor_user_id: ${{ secrets.TOPVISOR_USER_ID }}
+          topvisor_api_key: ${{ secrets.TOPVISOR_API_KEY }}
+      - name: Commit candidate only
+        if: steps.config.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add .semantic-core-candidate
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data: refresh Topvisor semantic-core candidate through hosted SeoHub"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

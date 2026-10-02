@@ -2,9 +2,19 @@ name: Collect Yandex Metrika
 
 on:
   workflow_dispatch:
+    inputs:
+      date_from:
+        description: Optional explicit start date (YYYY-MM-DD)
+        required: false
+        type: string
+      date_to:
+        description: Optional explicit end date (YYYY-MM-DD)
+        required: false
+        type: string
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: ${{ github.repository_id }}-seohub-writer
@@ -21,8 +31,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Read project configuration
-        id: config
+      - id: config
+        name: Read project configuration
         shell: bash
         run: |
           set -euo pipefail
@@ -41,19 +51,28 @@ jobs:
               print(f"project_id={c['id']}")
               print(f"counter_id={s['counter_id']}")
               print(f"attribution={s['attribution']}")
-              print(f"url_normalization_config={'config/url-normalization.json' if Path('config/url-normalization.json').is_file() else ''}")
           PY
-      - id: collect
-        if: steps.config.outputs.enabled == 'true'
-        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/collect-metrika@__SEOHUB_CLIENT_VERSION__
+      - if: steps.config.outputs.enabled == 'true'
+        uses: __SEOHUB_CLIENT_REPOSITORY__/actions/hosted-operation@__SEOHUB_CLIENT_VERSION__
         with:
-          project: ${{ steps.config.outputs.project_id }}
+          operation: metrika
+          base_url: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
+          project_id: ${{ steps.config.outputs.project_id }}
           counter_id: ${{ steps.config.outputs.counter_id }}
           attribution: ${{ steps.config.outputs.attribution }}
-          token: ${{ secrets.YANDEX_METRIKA_TOKEN }}
-          history_dir: data/normalized/yandex_metrika
-          url_normalization_config: ${{ steps.config.outputs.url_normalization_config }}
-      - name: Commit normalized Metrika history
+          days: "3"
+          date_from: ${{ inputs.date_from }}
+          date_to: ${{ inputs.date_to }}
+          yandex_metrika_token: ${{ secrets.YANDEX_METRIKA_TOKEN }}
+          storage_backend: ${{ vars.SEOHUB_STORAGE_BACKEND }}
+          storage_s3_bucket: ${{ vars.SEOHUB_STORAGE_S3_BUCKET }}
+          storage_s3_prefix: ${{ vars.SEOHUB_STORAGE_S3_PREFIX }}
+          storage_s3_endpoint_url: ${{ vars.SEOHUB_STORAGE_S3_ENDPOINT_URL }}
+          storage_s3_region: ${{ vars.SEOHUB_STORAGE_S3_REGION }}
+          storage_s3_access_key_id: ${{ secrets.SEOHUB_STORAGE_S3_ACCESS_KEY_ID }}
+          storage_s3_secret_access_key: ${{ secrets.SEOHUB_STORAGE_S3_SECRET_ACCESS_KEY }}
+          storage_s3_session_token: ${{ secrets.SEOHUB_STORAGE_S3_SESSION_TOKEN }}
+      - name: Commit hosted Metrika result
         if: steps.config.outputs.enabled == 'true'
         shell: bash
         run: |
@@ -62,5 +81,5 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "data: refresh Yandex Metrika normalized history"
+          git commit -m "data: refresh Yandex Metrika through hosted SeoHub"
           git push origin "HEAD:${GITHUB_REF_NAME}"

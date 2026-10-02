@@ -12,24 +12,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      - id: project
-        name: Validate project config and enabled source credentials
+      - id: local
+        name: Check installation, source configuration and Secret presence
         uses: __SEOHUB_CLIENT_REPOSITORY__/actions/project-readiness@__SEOHUB_CLIENT_VERSION__
         with:
-          live_auth: "true"
           yandex_metrika_token: ${{ secrets.YANDEX_METRIKA_TOKEN }}
           yandex_webmaster_token: ${{ secrets.YANDEX_WEBMASTER_TOKEN }}
           google_search_console_credentials_json: ${{ secrets.GOOGLE_SEARCH_CONSOLE_CREDENTIALS_JSON }}
           google_search_console_refresh_token: ${{ secrets.GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN }}
           topvisor_user_id: ${{ secrets.TOPVISOR_USER_ID }}
           topvisor_api_key: ${{ secrets.TOPVISOR_API_KEY }}
-
-      - name: Validate hosted base URL configuration
+          xmlstock_user_id: ${{ secrets.XMLSTOCK_USER_ID }}
+          xmlstock_api_key: ${{ secrets.XMLSTOCK_API_KEY }}
+      - name: Require configured hosted endpoint
         env:
           SEOHUB_HOSTED_BASE_URL: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
         shell: bash
@@ -37,36 +35,37 @@ jobs:
           set -euo pipefail
           case "$SEOHUB_HOSTED_BASE_URL" in
             https://*) ;;
-            *) echo "SEOHUB_HOSTED_BASE_URL repository variable is missing or not HTTPS" >&2; exit 2 ;;
+            *) echo "SEOHUB_HOSTED_BASE_URL is missing or not HTTPS" >&2; exit 2 ;;
           esac
-
       - id: whoami
-        name: Validate hosted GitHub OIDC identity
+        name: Prove GitHub OIDC, registration and active project
         uses: __SEOHUB_CLIENT_REPOSITORY__/actions/hosted-control-plane-request@__SEOHUB_CLIENT_VERSION__
         with:
           base_url: ${{ vars.SEOHUB_HOSTED_BASE_URL }}
           path: /v1/whoami
           method: GET
-
-      - name: Report hosted identity
+      - name: Report operational readiness
         env:
-          RESPONSE_FILE: ${{ steps.whoami.outputs.response_file }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          jq '{project_id, repository_id, repository, status, plan}' "$RESPONSE_FILE"
-
-      - name: Require project bootstrap readiness
-        env:
-          REPORT_FILE: ${{ steps.project.outputs.report_file }}
+          LOCAL_REPORT: ${{ steps.local.outputs.report_file }}
+          HOSTED_REPORT: ${{ steps.whoami.outputs.response_file }}
         shell: bash
         run: |
           set -euo pipefail
           jq -e '
             .client_installation.status == "installed"
-            and .source_connectivity.status == "ready"
             and .project_bootstrap.status == "ready"
-            and .project_readiness.status == "ready"
-          ' "$REPORT_FILE" >/dev/null
-          echo "SeoHub client installed; source connectivity and mandatory bootstrap decisions are ready."
-          echo "Analytical data readiness remains a separate post-bootstrap validation."
+            and .source_connectivity.status == "ready"
+          ' "$LOCAL_REPORT" >/dev/null
+          jq -e '.status == "active"' "$HOSTED_REPORT" >/dev/null
+          jq -n             --slurpfile local "$LOCAL_REPORT"             --slurpfile hosted "$HOSTED_REPORT"             '{
+              client_installed: $local[0].client_installation,
+              hosted_endpoint: {status: "configured"},
+              oidc_platform_authorization: {status: "authorized"},
+              repository_registration: {status: "registered"},
+              project_activation: {status: $hosted[0].status},
+              source_configuration_and_credentials: $local[0].source_connectivity,
+              data_readiness: $local[0].analytical_readiness,
+              paid_capability_readiness: $local[0].paid_capability_readiness
+            }'
+          echo "SeoHub thin client is operational for free hosted operations."
+          echo "Paid XMLStock readiness is separate; no paid provider request was executed."
