@@ -100,7 +100,7 @@ runs:
         WORKFLOW_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        root="${{ github.action_path }}/../.."
+        root="$(cd "${{ github.action_path }}/../.." && pwd -P)"
         cli="$root/scripts/project_lifecycle/cli.py"
         result_file="$RUNNER_TEMP/seohub-client-lifecycle.json"
 
