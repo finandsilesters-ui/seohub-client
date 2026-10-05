@@ -55,6 +55,6 @@
   ],
   "origin_repository": "finandsilesters-ui/SeoHub",
   "origin_revision": "68af17b592085db5433224fd1b66fafc30d52f12",
-  "public_client_revision": null,
+  "public_client_revision": "6d806b140e911ec3f7f8a5464a921aee67ce734b",
   "schema_version": "seohub_public_client_distribution_v1"
 }

@@ -120,9 +120,9 @@ jobs:
 
       - id: install
         name: Execute packaged bootstrap Action by immutable public SHA
-        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@__PUBLIC_CLIENT_SHA__
+        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@6d806b140e911ec3f7f8a5464a921aee67ce734b
         with:
-          client_version: __PUBLIC_CLIENT_SHA__
+          client_version: 6d806b140e911ec3f7f8a5464a921aee67ce734b
           project_id: public-action-smoke
           project_name: Public Action Smoke
           repository: finandsilesters-ui/public-action-smoke
@@ -144,4 +144,4 @@ jobs:
           test -f .seohub/client.json
           test -f .github/workflows/seohub-readiness.yml
           jq -e '.source_repository == "finandsilesters-ui/seohub-client"' .seohub/client.json >/dev/null
-          jq -e '.installed_version == "__PUBLIC_CLIENT_SHA__"' .seohub/client.json >/dev/null
+          jq -e '.installed_version == "6d806b140e911ec3f7f8a5464a921aee67ce734b"' .seohub/client.json >/dev/null
