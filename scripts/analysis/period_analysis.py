@@ -281,6 +281,89 @@ def _group_additive(
     return dict(grouped)
 
 
+def _query_stats_from_rows(
+    rows: Iterable[dict[str, Any]],
+    *,
+    position_key: str | None = None,
+) -> dict[str, dict[str, float | None]]:
+    grouped: dict[str, dict[str, float]] = defaultdict(
+        lambda: {
+            "clicks": 0.0,
+            "impressions": 0.0,
+            "position_numerator": 0.0,
+            "position_denominator": 0.0,
+        }
+    )
+    for row in rows:
+        query = row.get("query")
+        if not isinstance(query, str) or not query:
+            continue
+        item = grouped[query]
+        clicks = float(row.get("clicks", 0) or 0)
+        impressions = float(row.get("impressions", 0) or 0)
+        item["clicks"] += clicks
+        item["impressions"] += impressions
+        if position_key:
+            position = row.get(position_key)
+            if isinstance(position, (int, float)) and impressions > 0:
+                item["position_numerator"] += float(position) * impressions
+                item["position_denominator"] += impressions
+
+    result: dict[str, dict[str, float | None]] = {}
+    for query, item in grouped.items():
+        impressions = item["impressions"]
+        result[query] = {
+            "clicks": item["clicks"],
+            "impressions": impressions,
+            "ctr": None if impressions == 0 else item["clicks"] / impressions,
+            "position": (
+                None
+                if item["position_denominator"] == 0
+                else item["position_numerator"] / item["position_denominator"]
+            ),
+        }
+    return result
+
+
+def _comparable_query_dynamics(
+    current: dict[str, dict[str, float | None]],
+    previous: dict[str, dict[str, float | None]],
+    *,
+    metric_names: tuple[str, ...],
+    limit: int = DEFAULT_CONTRIBUTOR_LIMIT,
+) -> dict[str, Any]:
+    common = set(current) & set(previous)
+    rows: list[dict[str, Any]] = []
+    for query in common:
+        metrics = {
+            metric: _delta(current[query].get(metric), previous[query].get(metric))
+            for metric in metric_names
+        }
+        rows.append({"query": query, "metrics": metrics})
+
+    def sort_key(item: dict[str, Any]) -> tuple[float, float, str]:
+        clicks = item["metrics"].get("clicks", {}).get("absolute")
+        impressions = item["metrics"].get("impressions", {}).get("absolute")
+        return (
+            -abs(float(clicks or 0)),
+            -abs(float(impressions or 0)),
+            item["query"],
+        )
+
+    rows.sort(key=sort_key)
+    return {
+        "status": "available",
+        "coverage": "source_limited",
+        "absence_is_not_zero": True,
+        "comparison_rule": "only queries exposed in both periods are compared",
+        "comparable_query_count": len(common),
+        "current_only_query_count": len(set(current) - common),
+        "previous_only_query_count": len(set(previous) - common),
+        "shown": min(limit, len(rows)),
+        "rows": rows[:limit],
+    }
+
+
 def _contributors(
     current: dict[str, float],
     previous: dict[str, float],
@@ -590,6 +673,11 @@ def analyze_gsc(
             query_impressions_current,
             query_impressions_previous,
         ),
+        "query_dynamics": _comparable_query_dynamics(
+            _query_stats_from_rows(current["queries"], position_key="position"),
+            _query_stats_from_rows(previous["queries"], position_key="position"),
+            metric_names=("clicks", "impressions", "ctr", "position"),
+        ),
         "detail_semantics": {
             "pages": "source_limited",
             "queries": "source_limited",
@@ -665,32 +753,157 @@ def _event_comparison(
     }
 
 
-def _matching_popular_query_checkpoints(
+def _popular_query_checkpoint(
+    source_dir: Path,
+    start: str,
+    end: str,
+) -> tuple[dict[str, Any] | None, str]:
+    filename = f"{start}--{end}.json"
+    relative_path = f"popular_queries/{filename}"
+    payload = _logical_bytes(source_dir, relative_path)
+    if payload is None:
+        return None, filename
+    try:
+        document = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PeriodAnalysisError(
+            f"{source_dir / relative_path} contains invalid JSON: {exc}"
+        ) from exc
+    if not isinstance(document, dict) or document.get("dataset") != "popular_queries":
+        raise PeriodAnalysisError(
+            f"{source_dir / relative_path} must contain popular_queries"
+        )
+    rows = document.get("rows")
+    if not isinstance(rows, list):
+        raise PeriodAnalysisError(
+            f"{source_dir / relative_path} has invalid popular_queries rows"
+        )
+    return document, filename
+
+
+def _webmaster_query_stats(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, float | None]]:
+    result: dict[str, dict[str, float | None]] = {}
+    for row in rows:
+        query = row.get("query")
+        if not isinstance(query, str) or not query:
+            continue
+        clicks = float(row.get("clicks", 0) or 0)
+        impressions = float(row.get("impressions", 0) or 0)
+        result[query] = {
+            "clicks": clicks,
+            "impressions": impressions,
+            "ctr_percent": (
+                None if impressions == 0 else clicks / impressions * 100.0
+            ),
+            "avg_show_position": (
+                float(row["avg_show_position"])
+                if isinstance(row.get("avg_show_position"), (int, float))
+                else None
+            ),
+            "avg_click_position": (
+                float(row["avg_click_position"])
+                if isinstance(row.get("avg_click_position"), (int, float))
+                else None
+            ),
+        }
+    return result
+
+
+def _popular_query_dynamics(
     source_dir: Path,
     current_from: str,
     current_until: str,
     previous_from: str,
     previous_until: str,
 ) -> dict[str, Any]:
-    directory = source_dir / "popular_queries"
-    expected = {
-        f"{current_from}--{current_until}.json",
-        f"{previous_from}--{previous_until}.json",
-    }
-    existing = {path.name for path in directory.glob("*.json")} if directory.exists() else set()
-    if not expected.issubset(existing):
+    current_doc, current_file = _popular_query_checkpoint(
+        source_dir, current_from, current_until
+    )
+    previous_doc, previous_file = _popular_query_checkpoint(
+        source_dir, previous_from, previous_until
+    )
+    if current_doc is None or previous_doc is None:
+        directory = source_dir / "popular_queries"
+        existing = (
+            sorted(path.name for path in directory.glob("*.json"))
+            if directory.exists()
+            else []
+        )
         return {
             "status": "not_available",
             "coverage": "source_limited",
-            "reason": "matching 7-day popular_queries checkpoints are not persisted",
-            "available_checkpoint_files": sorted(existing),
+            "reason": "matching popular_queries checkpoints are not persisted",
+            "required_checkpoint_files": [current_file, previous_file],
+            "available_checkpoint_files": existing,
         }
-    return {
-        "status": "available",
-        "coverage": "source_limited",
-        "full_query_universe": False,
-        "checkpoint_files": sorted(expected),
-    }
+
+    if current_doc.get("history_methodology") != previous_doc.get("history_methodology"):
+        return {
+            "status": "refused",
+            "coverage": "source_limited",
+            "reason": "popular_queries checkpoint methodologies differ",
+            "checkpoint_files": [current_file, previous_file],
+        }
+
+    expected_coverage = (
+        (current_doc, current_from, current_until, current_file),
+        (previous_doc, previous_from, previous_until, previous_file),
+    )
+    for document, expected_from, expected_until, filename in expected_coverage:
+        metadata = document.get("metadata")
+        if not isinstance(metadata, dict):
+            return {
+                "status": "refused",
+                "coverage": "source_limited",
+                "reason": f"{filename} is missing metadata",
+                "checkpoint_files": [current_file, previous_file],
+            }
+        if (
+            metadata.get("data_from") != expected_from
+            or metadata.get("data_until") != expected_until
+        ):
+            return {
+                "status": "not_available",
+                "coverage": "source_limited",
+                "reason": "popular_queries checkpoint does not fully cover requested period",
+                "checkpoint_files": [current_file, previous_file],
+                "checkpoint_coverage": {
+                    current_file: {
+                        "data_from": current_doc.get("metadata", {}).get("data_from"),
+                        "data_until": current_doc.get("metadata", {}).get("data_until"),
+                    },
+                    previous_file: {
+                        "data_from": previous_doc.get("metadata", {}).get("data_from"),
+                        "data_until": previous_doc.get("metadata", {}).get("data_until"),
+                    },
+                },
+            }
+
+    current_rows = [row for row in current_doc["rows"] if isinstance(row, dict)]
+    previous_rows = [row for row in previous_doc["rows"] if isinstance(row, dict)]
+    result = _comparable_query_dynamics(
+        _webmaster_query_stats(current_rows),
+        _webmaster_query_stats(previous_rows),
+        metric_names=(
+            "clicks",
+            "impressions",
+            "ctr_percent",
+            "avg_show_position",
+            "avg_click_position",
+        ),
+    )
+    result.update(
+        {
+            "full_query_universe": False,
+            "checkpoint_files": [current_file, previous_file],
+            "limitations": [
+                "popular_queries is a source-limited top-query dataset",
+                "queries absent from one checkpoint are not interpreted as zero",
+                "Yandex Webmaster query placement is not filterable to pure organic only",
+            ],
+        }
+    )
+    return result
 
 
 def _point_in_time_comparison(
@@ -832,7 +1045,7 @@ def analyze_webmaster(
             previous_from,
             previous_until,
         ),
-        "popular_queries": _matching_popular_query_checkpoints(
+        "popular_queries": _popular_query_dynamics(
             source_dir, current_from, current_until, previous_from, previous_until
         ),
         "point_in_time": _point_in_time_comparison(

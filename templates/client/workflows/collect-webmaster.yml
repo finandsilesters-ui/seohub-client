@@ -2,6 +2,15 @@ name: Collect Yandex Webmaster
 
 on:
   workflow_dispatch:
+    inputs:
+      date_from:
+        description: "Optional exact start date (YYYY-MM-DD); leave both dates blank for regular refresh."
+        required: false
+        type: string
+      date_to:
+        description: "Optional exact end date (YYYY-MM-DD); leave both dates blank for regular refresh."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -49,6 +58,8 @@ jobs:
           host_id: ${{ steps.config.outputs.host_id }}
           timezone: ${{ steps.config.outputs.timezone }}
           token: ${{ secrets.YANDEX_WEBMASTER_TOKEN }}
+          date_from: "${{ inputs.date_from }}"
+          date_to: "${{ inputs.date_to }}"
           history_dir: data/normalized/yandex_webmaster
       - name: Commit normalized Webmaster history
         if: steps.config.outputs.enabled == 'true'

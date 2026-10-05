@@ -20,9 +20,9 @@ The example is prepared for the deployment smoke repository `alexfchkjob-stack/s
 - Topvisor: enabled, project `"0"`
 - XMLStock: enabled as a hosted paid-action source
 
-The installer is pinned to public client commit `4b21a40529f6f9f0f71b9787645ead44d150d92d`. Both the Action `uses:` reference and `client_version` must be the same immutable 40-character SHA.
+The installer is pinned to public client commit `__PUBLIC_CLIENT_SHA__`. Both the Action `uses:` reference and `client_version` must be the same immutable 40-character SHA.
 
-The install creates `project.yaml`, `.seohub/client.json`, and the managed workflows. It does not call any source API, does not execute paid XMLStock, and does not require access to the private `finandsilesters-ui/SeoHub` repository.
+The install creates project-owned `project.yaml`, `PROJECT_INSTRUCTIONS.md`, and `PROJECT_OPERATIONS.md`, plus `.seohub/client.json` and the managed workflows. The instruction file is ready to paste into a ChatGPT Project; the operations file is its flexible map for discovering sources, evidence layers, workflows, storage, and tool paths. Lifecycle updates never overwrite either project-owned file. Installation does not call any source API, does not execute paid XMLStock, and does not require access to the private `finandsilesters-ui/SeoHub` repository.
 
 ## Secrets and repository variable
 
@@ -75,6 +75,8 @@ SeoHub-managed:
 Project-owned and preserved by updates:
 
 - `project.yaml`
+- `PROJECT_INSTRUCTIONS.md`
+- `PROJECT_OPERATIONS.md`
 - `config/**`
 - `events/**`
 - `research/**`

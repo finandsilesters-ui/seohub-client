@@ -23,7 +23,8 @@ from scripts.search_measurement.semantic_core_import import (
     write_candidate,
 )
 
-API = "https://api.topvisor.com/v2/json/get"
+DEFAULT_API_BASE = "https://api.topvisor.net/v2/json/get"
+OFFICIAL_FALLBACK_API_BASE = "https://api.topvisor.com/v2/json/get"
 KEYWORD_FIELDS = [
     "id", "group_id", "name", "target", "group_on",
     "group_folder_id", "group_folder_path",
@@ -72,16 +73,26 @@ def _domain(value: Any) -> str | None:
 
 
 class TopvisorClient:
-    def __init__(self, user_id: str, api_key: str, *, timeout: int = 45):
+    def __init__(
+        self,
+        user_id: str,
+        api_key: str,
+        *,
+        timeout: int = 45,
+        api_base: str = DEFAULT_API_BASE,
+    ):
         self.user_id = user_id.strip()
         self.api_key = api_key.strip()
         self.timeout = timeout
+        self.api_base = api_base.rstrip("/")
         if not self.user_id or not self.api_key:
             raise TopvisorImportError("TOPVISOR_USER_ID and TOPVISOR_API_KEY are required")
+        if not self.api_base.startswith("https://"):
+            raise TopvisorImportError("Topvisor API base must use HTTPS")
 
     def call(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
-            f"{API}/{path}",
+            f"{self.api_base}/{path}",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",

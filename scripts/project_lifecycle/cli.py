@@ -260,6 +260,8 @@ def _install_metadata(source_root: Path, version: str, rendered: Mapping[str, by
             "seohub_managed": [".seohub/client.json", *sorted(rendered)],
             "project_owned": [
                 "project.yaml",
+                "PROJECT_INSTRUCTIONS.md",
+                "PROJECT_OPERATIONS.md",
                 "config/**",
                 "events/**",
                 "research/**",
@@ -268,6 +270,28 @@ def _install_metadata(source_root: Path, version: str, rendered: Mapping[str, by
             "generated_data": ["data/**"],
         },
     }
+
+
+def _project_instructions_template(source_root: Path) -> str:
+    path = source_root / "templates" / "PROJECT_INSTRUCTIONS.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise LifecycleError(f"cannot read project instructions template {path}: {exc}") from exc
+    if not text.strip():
+        raise LifecycleError(f"project instructions template is empty: {path}")
+    return text if text.endswith("\n") else text + "\n"
+
+
+def _project_operations_template(source_root: Path) -> str:
+    path = source_root / "templates" / "PROJECT_OPERATIONS.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise LifecycleError(f"cannot read project operations template {path}: {exc}") from exc
+    if not text.strip():
+        raise LifecycleError(f"project operations template is empty: {path}")
+    return text if text.endswith("\n") else text + "\n"
 
 
 def _project_template(
@@ -803,7 +827,17 @@ def bootstrap(target: Path, source_root: Path, *, version: str, project_id: str,
     install = _load_install(target)
     rendered = _render_managed(source_root, version)
     project_path = target / "project.yaml"
+    instructions_path = target / "PROJECT_INSTRUCTIONS.md"
+    operations_path = target / "PROJECT_OPERATIONS.md"
     project_created = False
+    instructions_created = False
+    operations_created = False
+    instructions_text = None
+    operations_text = None
+    if install is None and not instructions_path.exists():
+        instructions_text = _project_instructions_template(source_root)
+    if install is None and not operations_path.exists():
+        operations_text = _project_operations_template(source_root)
 
     if install is not None and not project_path.exists():
         raise LifecycleError("project-owned project.yaml is missing; restore or recreate it explicitly before lifecycle operations")
@@ -840,22 +874,36 @@ def bootstrap(target: Path, source_root: Path, *, version: str, project_id: str,
                 "status": "unchanged",
                 "installed_version": version,
                 "project_created": False,
+                "project_instructions_created": False,
+                "project_operations_created": False,
                 "managed_files": sorted(rendered),
                 "secrets": secret_checklist(config),
             }
 
     metadata = _install_metadata(source_root, version, rendered)
     try:
+        if instructions_text is not None:
+            instructions_path.write_text(instructions_text, encoding="utf-8")
+            instructions_created = True
+        if operations_text is not None:
+            operations_path.write_text(operations_text, encoding="utf-8")
+            operations_created = True
         _atomic_apply(target, rendered, metadata)
     except Exception:
         if project_created:
             project_path.unlink(missing_ok=True)
+        if instructions_created:
+            instructions_path.unlink(missing_ok=True)
+        if operations_created:
+            operations_path.unlink(missing_ok=True)
         raise
     return {
         "operation": "bootstrap",
         "status": "installed",
         "installed_version": version,
         "project_created": project_created,
+        "project_instructions_created": instructions_created,
+        "project_operations_created": operations_created,
         "managed_files": sorted(rendered),
         "secrets": secret_checklist(config),
     }
@@ -884,7 +932,7 @@ def plan_update(target: Path, source_root: Path, *, version: str) -> dict[str, A
         "installed_version": install.get("installed_version"),
         "target_version": version,
         "changes": changes,
-        "protected_project_owned": ["project.yaml", "config/**", "events/**", "research/**", "reports/**", "data/**"],
+        "protected_project_owned": ["project.yaml", "PROJECT_INSTRUCTIONS.md", "PROJECT_OPERATIONS.md", "config/**", "events/**", "research/**", "reports/**", "data/**"],
     }
 
 

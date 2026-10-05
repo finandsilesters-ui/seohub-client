@@ -120,9 +120,9 @@ jobs:
 
       - id: install
         name: Execute packaged bootstrap Action by immutable public SHA
-        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@4b21a40529f6f9f0f71b9787645ead44d150d92d
+        uses: finandsilesters-ui/seohub-client/actions/bootstrap-project@__PUBLIC_CLIENT_SHA__
         with:
-          client_version: 4b21a40529f6f9f0f71b9787645ead44d150d92d
+          client_version: __PUBLIC_CLIENT_SHA__
           project_id: public-action-smoke
           project_name: Public Action Smoke
           repository: finandsilesters-ui/public-action-smoke
@@ -137,7 +137,11 @@ jobs:
           set -euo pipefail
           [[ "$STATUS" == "installed" ]]
           test -f project.yaml
+          test -f PROJECT_INSTRUCTIONS.md
+          grep -q "Git is read-only by default" PROJECT_INSTRUCTIONS.md
+          test -f PROJECT_OPERATIONS.md
+          grep -q "Route by evidence need" PROJECT_OPERATIONS.md
           test -f .seohub/client.json
           test -f .github/workflows/seohub-readiness.yml
           jq -e '.source_repository == "finandsilesters-ui/seohub-client"' .seohub/client.json >/dev/null
-          jq -e '.installed_version == "4b21a40529f6f9f0f71b9787645ead44d150d92d"' .seohub/client.json >/dev/null
+          jq -e '.installed_version == "__PUBLIC_CLIENT_SHA__"' .seohub/client.json >/dev/null
