@@ -91,6 +91,12 @@ class PublicBundleTests(unittest.TestCase):
             )
             self.assertEqual(result["status"], "installed")
             project = yaml.safe_load((target / "project.yaml").read_text(encoding="utf-8"))
+            instructions = target / "PROJECT_INSTRUCTIONS.md"
+            self.assertTrue(instructions.is_file())
+            self.assertIn("Git is read-only by default", instructions.read_text(encoding="utf-8"))
+            operations = target / "PROJECT_OPERATIONS.md"
+            self.assertTrue(operations.is_file())
+            self.assertIn("Route by evidence need", operations.read_text(encoding="utf-8"))
             self.assertEqual(project["sources"]["yandex_metrika"]["counter_id"], "0")
             self.assertEqual(project["sources"]["topvisor"]["project_id"], "0")
             self.assertTrue(all(item["enabled"] for item in project["sources"].values()))
@@ -124,10 +130,22 @@ class PublicBundleTests(unittest.TestCase):
             (target / "data").mkdir()
             (target / "data/keep.txt").write_text("data\n", encoding="utf-8")
             project_before = (target / "project.yaml").read_bytes()
+            instructions = target / "PROJECT_INSTRUCTIONS.md"
+            instructions.write_text("operator custom instructions\n", encoding="utf-8")
+            operations = target / "PROJECT_OPERATIONS.md"
+            operations.write_text("operator custom operations\n", encoding="utf-8")
             plan = cli.plan_update(target, ROOT, version=B)
             self.assertEqual(plan["status"], "changes")
             cli.update(target, ROOT, version=B)
             self.assertEqual((target / "project.yaml").read_bytes(), project_before)
+            self.assertEqual(
+                instructions.read_text(encoding="utf-8"),
+                "operator custom instructions\n",
+            )
+            self.assertEqual(
+                operations.read_text(encoding="utf-8"),
+                "operator custom operations\n",
+            )
             self.assertTrue((target / "config/keep.json").is_file())
             self.assertTrue((target / "data/keep.txt").is_file())
             self.assertEqual(

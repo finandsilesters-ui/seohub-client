@@ -99,6 +99,22 @@ def _trim_contributors(value: Any, limit: int) -> dict[str, Any]:
     }
 
 
+def _trim_query_dynamics(value: Any, limit: int) -> dict[str, Any]:
+    if value is None:
+        return {"status": "not_available", "reason": "missing_query_dynamics"}
+    block = _mapping(value, "query dynamics")
+    rows = block.get("rows")
+    if block.get("status") != "available":
+        return dict(block)
+    if not isinstance(rows, list):
+        raise TrafficSummaryError("query dynamics.rows must be a list")
+    selected = [row for row in rows[:limit] if isinstance(row, dict)]
+    result = dict(block)
+    result["rows"] = selected
+    result["shown"] = len(selected)
+    return result
+
+
 def _source_context(
     source_name: str,
     source: dict[str, Any] | None,
@@ -241,6 +257,7 @@ def summarize_period_analysis(
         gsc_headline = {"status": "not_available", "reason": "missing_source"}
         gsc_pages = {"status": "not_available", "reason": "missing_source"}
         gsc_queries = {"status": "not_available", "reason": "missing_source"}
+        gsc_query_dynamics = {"status": "not_available", "reason": "missing_source"}
         gsc_sections = {"status": "not_available", "reason": "missing_source"}
         gsc_limitations = ["missing_source"]
     else:
@@ -252,6 +269,7 @@ def summarize_period_analysis(
         }
         gsc_pages = _gsc_detail(gsc.get("page_contributors"), mover_limit)
         gsc_queries = _gsc_detail(gsc.get("query_contributors"), mover_limit)
+        gsc_query_dynamics = _trim_query_dynamics(gsc.get("query_dynamics"), mover_limit)
         gsc_sections = _gsc_detail(gsc.get("section_contributors"), mover_limit)
         gsc_limitations = [
             "page_query_and_section_detail_is_source_limited",
@@ -265,6 +283,11 @@ def summarize_period_analysis(
             raw = aggregate.get("limitations")
             if isinstance(raw, list):
                 webmaster_limitations.extend(str(value) for value in raw)
+        webmaster_query_dynamics = _trim_query_dynamics(
+            webmaster.get("popular_queries"), mover_limit
+        )
+    else:
+        webmaster_query_dynamics = {"status": "not_available", "reason": "missing_source"}
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -279,11 +302,14 @@ def summarize_period_analysis(
         },
         "query_movers": {
             "gsc": gsc_queries,
-            "limitations": (
-                ["GSC query rows are source-limited and are not the full query universe"]
-                if gsc is not None
-                else ["query source unavailable"]
-            ),
+            "gsc_comparable": gsc_query_dynamics,
+            "yandex_webmaster": webmaster_query_dynamics,
+            "limitations": [
+                "GSC query rows are source-limited and are not the full query universe",
+                "GSC and Webmaster query detail are source-limited, not full query universes",
+                "manager-facing query dynamics must use only queries exposed in both compared periods",
+                "absence from a source-limited query set is not zero activity",
+            ],
         },
         "section_contribution": {
             "metrika_visits": metrika_sections,

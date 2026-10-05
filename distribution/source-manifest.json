@@ -1,9 +1,5 @@
 {
-  "schema_version": "seohub_public_client_distribution_v1",
-  "origin_repository": "finandsilesters-ui/SeoHub",
-  "origin_revision": "da8d3bd1d12f31aacc53cf68c8c3024c46546385",
   "client_repository": "finandsilesters-ui/seohub-client",
-  "public_client_revision": "4b21a40529f6f9f0f71b9787645ead44d150d92d",
   "files": [
     ".github/workflows/test-public-client.yml",
     "README.md",
@@ -47,6 +43,8 @@
     "scripts/storage/requirements-s3.txt",
     "scripts/webmaster/collect.py",
     "scripts/webmaster/history.py",
+    "templates/PROJECT_INSTRUCTIONS.md",
+    "templates/PROJECT_OPERATIONS.md",
     "templates/client/managed-files.json",
     "templates/client/workflows/collect-gsc.yml",
     "templates/client/workflows/collect-metrika.yml",
@@ -54,5 +52,9 @@
     "templates/client/workflows/generate-current-state.yml",
     "templates/client/workflows/seohub-readiness.yml",
     "tests/test_public_bundle.py"
-  ]
+  ],
+  "origin_repository": "finandsilesters-ui/SeoHub",
+  "origin_revision": "68af17b592085db5433224fd1b66fafc30d52f12",
+  "public_client_revision": "6d806b140e911ec3f7f8a5464a921aee67ce734b",
+  "schema_version": "seohub_public_client_distribution_v1"
 }
